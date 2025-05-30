@@ -1,4 +1,5 @@
-type LeaderboardEvent = LeaderboardCreated | LeaderboardWon | UserExercised | UserJoined
+
+type LeaderboardEvent = LeaderboardCreated | LeaderboardWon | UserExercised | UserJoined | UserJoinedFailed
 
 type LeaderboardCreated = {
     type: 'leaderboard-created'
@@ -27,6 +28,14 @@ type UserJoined = {
     type: 'user-joined'
     userId: string
     leaderboardId: string
+    timestamp: number
+}
+
+type UserJoinedFailed = {
+    type: 'user-joined-failed'
+    userId: string
+    leaderboardId: string
+    reason: string
     timestamp: number
 }
 
@@ -68,6 +77,38 @@ const getLeaderboardUsersRanked = (eventStore: EventStore<LeaderboardEvent>, lea
     return [...ranked.entries()].map(([userId, minutes]) => ({ userId, minutes })).sort((a, b) => b.minutes - a.minutes)
 }
 
+const isOpen = (eventStore: EventStore<LeaderboardEvent>, leaderboardId: string): boolean =>
+    !(getEvents(eventStore)).find(e => e.type === 'leaderboard-won' && e.leaderboardId === leaderboardId)
+
+const joinLeaderboard = (eventStore: EventStore<LeaderboardEvent>, userId: string, leaderboardId: string): void => {
+    const users = usersOnLeaderboard(eventStore, leaderboardId)
+    if (!isOpen(eventStore, leaderboardId)) {
+        return putEvent(eventStore, {
+            type: 'user-joined-failed',
+            userId,
+            leaderboardId,
+            reason: 'Leaderboard is closed',
+            timestamp: Date.now()
+        })
+    }
+    if (users.has(userId)) {
+        return putEvent(eventStore, {
+            type: 'user-joined-failed',
+            userId,
+            leaderboardId,
+            reason: 'User already joined',
+            timestamp: Date.now()
+        })
+    }
+    return putEvent(eventStore, {
+        type: 'user-joined',
+        userId,
+        leaderboardId,
+        timestamp: Date.now()
+    })
+}
+
+
 const eventStore: EventStore<LeaderboardEvent> = []
 
 putEvent(eventStore, {
@@ -79,19 +120,8 @@ putEvent(eventStore, {
     timestamp: Date.now()
 })
 
-putEvent(eventStore, {
-    type: 'user-joined',
-    userId: 'user-1',
-    leaderboardId: '1',
-    timestamp: Date.now()
-})
-
-putEvent(eventStore, {
-    type: 'user-joined',
-    userId: 'user-2',
-    leaderboardId: '1',
-    timestamp: Date.now()
-})
+joinLeaderboard(eventStore, 'user-1', '1')
+joinLeaderboard(eventStore, 'user-2', '1')
 
 putEvent(eventStore, {
     type: 'user-exercised',
@@ -114,4 +144,7 @@ putEvent(eventStore, {
     timestamp: Date.now()
 })
 
-console.log(getLeaderboardUsersRanked(eventStore, '1'))
+joinLeaderboard(eventStore, 'user-1', '1')
+
+
+console.log(getLeaderboardUsersRanked(eventStore, '1'), usersOnLeaderboard(eventStore, '1'), getEvents(eventStore))
